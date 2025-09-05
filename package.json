@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "修学旅行のしおり風旅行ログ生成アプリ（のバックエンド部分）",
   "main": "./src/index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "run-local": "node ./src/index.js"
+    "local": "nodemon ./src/index.js"
   },
   "repository": {
     "type": "git",
@@ -19,5 +20,8 @@
   "homepage": "https://github.com/Funya-okina/sightseeingLog#readme",
   "dependencies": {
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }
