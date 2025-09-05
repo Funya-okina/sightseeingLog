@@ -5,29 +5,24 @@ const app = express();
 app.use(express.json());
 
 app.get('/landmarkData', async (req, res) => {
-  try {
-    const gpsInfo = req.query.lat && req.query.lon
-    ? {
-      latitude: req.query.lat,
-      longitude: req.query.lon,
-    }
-    : null;
+  const gpsInfo = req.query.lat && req.query.lon
+  ? {
+    latitude: req.query.lat,
+    longitude: req.query.lon,
+  }
+  : null;
 
-    if (gpsInfo !== null) {
-      try {
-        const response = await axios.get(
-          `https://map.yahooapis.jp/placeinfo/V1/get?lat=${gpsInfo.latitude}&lon=${gpsInfo.longitude}&appid=${process.env.YAHOO_API_KEY}&output=json`);
-        res.json(response.data);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        res.status(500).send('Bad Request: Error fetching data from external API');
-      }
-    } else {
-      res.status(400).send('Bad Request: Missing latitude or longitude parameters');
+  if (gpsInfo !== null) {
+    try {
+      const response = await axios.get(
+        `https://map.yahooapis.jp/placeinfo/V1/get?lat=${gpsInfo.latitude}&lon=${gpsInfo.longitude}&appid=${process.env.YAHOO_API_KEY}&output=json`);
+      res.json(response.data);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      res.status(500).send('Bad Request: Error fetching data from external API');
     }
-  } catch (error) {
-    console.error('Error handling /landmarkData request:', error);
-    res.status(500).send('Internal Server Error');
+  } else {
+    res.status(400).send('Bad Request: Missing latitude or longitude parameters');
   }
 });
 
