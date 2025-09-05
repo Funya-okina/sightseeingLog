@@ -1,9 +1,11 @@
 import express from 'express';
 import axios from 'axios';
 import multer from 'multer';
+import cours from 'cors';
 
 const app = express();
 app.use(express.json());
+app.use(cours());
 
 const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
 
@@ -36,7 +38,10 @@ app.post(``, upload.fields([
   try {
     const requestFiles = req.files;
     console.log('Received files:', requestFiles);
-    res.status(200).json({ imageName: requestFiles.images.map(file => file.originalname), detailJson: requestFiles.detailJson ? requestFiles.detailJson[0].buffer.toString() : null });
+    res.status(200).json({
+        imageName: requestFiles.images ? requestFiles.images.map(file => file.originalname) : null,
+        detailJson: requestFiles.detailJson ? requestFiles.detailJson[0].buffer.toString() : null
+    });
 } catch (error) { 
     console.error('Error processing data:', error);
     res.status(500).send('Bad Request: Error processing data');

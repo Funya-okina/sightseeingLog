@@ -20,6 +20,7 @@
   "homepage": "https://github.com/Funya-okina/sightseeingLog#readme",
   "dependencies": {
     "axios": "^1.11.0",
+    "cors": "^2.8.5",
     "express": "^5.1.0",
     "multer": "^2.0.2"
   },
