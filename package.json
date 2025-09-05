@@ -2,10 +2,10 @@
   "name": "sightseeinglog",
   "version": "1.0.0",
   "description": "修学旅行のしおり風旅行ログ生成アプリ（のバックエンド部分）",
-  "main": "index.js",
+  "main": "./src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "run-local": "node index.js"
+    "run-local": "node ./src/index.js"
   },
   "repository": {
     "type": "git",
@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/Funya-okina/sightseeingLog/issues"
   },
-  "homepage": "https://github.com/Funya-okina/sightseeingLog#readme"
+  "homepage": "https://github.com/Funya-okina/sightseeingLog#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
 }
