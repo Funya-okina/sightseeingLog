@@ -170,7 +170,7 @@ app.post(`/`, upload.fields([
     const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {});
 
     htmlToPdf(generatedHtml).then(data => {
-      res.set('Content-disposition', 'attachment; filename="sample.pdf"');
+      res.set('Content-disposition', 'attachment; filename="shiori.pdf"');
       res.contentType("application/pdf");
       res.send(data);
     }).catch(async err => {

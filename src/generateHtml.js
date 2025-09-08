@@ -59,7 +59,7 @@ export function generateHtmlFromJson(json) {
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>修学旅行のしおり（サンプル修正版）</title>
+  <title>修学旅行のしおり</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     /* ======== 基本設定 ======== */
