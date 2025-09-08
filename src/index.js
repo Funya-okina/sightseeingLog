@@ -3,6 +3,8 @@ import axios from 'axios';
 import multer from 'multer';
 import cours from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import puppeteer from 'puppeteer';
+
 
 const app = express();
 app.use(express.json());
@@ -160,6 +162,53 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
     }
     return res.status(500).json({ error: 'Internal Server Error' });
   }
+});
+
+
+//////////////////////////////
+// pdf返却エンドポイント関連
+//////////////////////////////
+// サンプルHTML文字列
+const sampleHtml = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>PDFサンプル</title>
+</head>
+<body>
+  <h1>横浜の観光名所</h1>
+  <ul>
+    <li>みなとみらい</li>
+    <li>中華街</li>
+    <li>山下公園</li>
+  </ul>
+</body>
+</html>
+`;
+
+// HTML文字列からPDFを生成する関数
+async function htmlToPdf(htmlString) {
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const page = await browser.newPage();
+  await page.setContent(htmlString, { waitUntil: 'networkidle0' });
+  const pdfBuffer = await page.pdf({ format: 'A4' });
+  await browser.close();
+  return pdfBuffer;
+}
+
+// PDF返却エンドポイント
+app.get('/pdf', (req, res) => {
+  htmlToPdf(sampleHtml).then(data => {
+    res.set('Content-disposition', 'attachment; filename="sample.pdf"');
+    res.contentType("application/pdf");
+    res.send(data);
+  }).catch(async err => {
+    console.error('Error generating PDF file:', err);
+    res.status(500).send('Internal Server Error: Unable to generate PDF file');
+  });
 });
 
 
