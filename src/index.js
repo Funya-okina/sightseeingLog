@@ -183,7 +183,7 @@ app.post(`/`, upload.fields([
   }
 });
 
-// PDF返却エンドポイント
+// テスト用PDF返却エンドポイント
 app.get('/pdf', (req, res) => {
   htmlToPdf(sampleHtml).then(data => {
     res.set('Content-disposition', 'attachment; filename="sample.pdf"');
