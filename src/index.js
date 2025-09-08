@@ -4,6 +4,7 @@ import multer from 'multer';
 import cours from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import puppeteer from 'puppeteer';
+import { generateHtmlFromJson } from './generateHtml.js';
 
 
 const app = express();
@@ -33,29 +34,6 @@ app.get('/landmarkData', async (req, res) => {
     }
   } else {
     res.status(400).send('Bad Request: Missing latitude or longitude parameters');
-  }
-});
-
-
-//////////////////////////////
-// post内容確認用エンドポイント
-//////////////////////////////
-const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
-
-app.post(``, upload.fields([
-  { name: 'images', maxCount: 10 },
-  { name: `detailJson`, maxCount: 1 }
-]), async (req, res) => {
-  try {
-    const requestFiles = req.files;
-    console.log('Received files:', requestFiles);
-    res.status(200).json({
-        imageName: requestFiles.images ? requestFiles.images.map(file => file.originalname) : null,
-        detailJson: requestFiles.detailJson ? requestFiles.detailJson[0].buffer.toString() : null
-    });
-} catch (error) { 
-    console.error('Error processing data:', error);
-    res.status(500).send('Bad Request: Error processing data');
   }
 });
 
@@ -168,24 +146,7 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
 //////////////////////////////
 // pdf返却エンドポイント関連
 //////////////////////////////
-// サンプルHTML文字列
-const sampleHtml = `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>PDFサンプル</title>
-</head>
-<body>
-  <h1>横浜の観光名所</h1>
-  <ul>
-    <li>みなとみらい</li>
-    <li>中華街</li>
-    <li>山下公園</li>
-  </ul>
-</body>
-</html>
-`;
+const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
 
 // HTML文字列からPDFを生成する関数
 async function htmlToPdf(htmlString) {
@@ -194,10 +155,33 @@ async function htmlToPdf(htmlString) {
   });
   const page = await browser.newPage();
   await page.setContent(htmlString, { waitUntil: 'networkidle0' });
-  const pdfBuffer = await page.pdf({ format: 'A4' });
+  const pdfBuffer = await page.pdf({ format: 'A5' });
   await browser.close();
   return pdfBuffer;
 }
+
+// 本番用pdf返却エンドポイント
+app.post(`/`, upload.fields([
+  { name: 'images', maxCount: 10 },
+  { name: `detailJson`, maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const requestFiles = req.files;
+    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {});
+
+    htmlToPdf(generatedHtml).then(data => {
+      res.set('Content-disposition', 'attachment; filename="sample.pdf"');
+      res.contentType("application/pdf");
+      res.send(data);
+    }).catch(async err => {
+      console.error('Error generating PDF file:', err);
+      res.status(500).send('Internal Server Error: Unable to generate PDF file');
+    });
+} catch (error) { 
+    console.error('Error processing data:', error);
+    res.status(500).send('Bad Request: Error processing data');
+  }
+});
 
 // PDF返却エンドポイント
 app.get('/pdf', (req, res) => {
