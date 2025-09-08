@@ -8,12 +8,63 @@ const app = express();
 app.use(express.json());
 app.use(cours());
 
+
+//////////////////////////////
+// ランドマーク取得エンドポイント
+//////////////////////////////
+app.get('/landmarkData', async (req, res) => {
+  const gpsInfo = req.query.lat && req.query.lon
+  ? {
+    latitude: req.query.lat,
+    longitude: req.query.lon,
+  }
+  : null;
+
+  if (gpsInfo !== null) {
+    try {
+      const response = await axios.get(
+        `https://map.yahooapis.jp/placeinfo/V1/get?lat=${gpsInfo.latitude}&lon=${gpsInfo.longitude}&appid=${process.env.YAHOO_API_KEY}&output=json`);
+      res.json(response.data);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      res.status(500).send('Bad Request: Error fetching data from external API');
+    }
+  } else {
+    res.status(400).send('Bad Request: Missing latitude or longitude parameters');
+  }
+});
+
+
+//////////////////////////////
+// post内容確認用エンドポイント
+//////////////////////////////
 const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
+
+app.post(``, upload.fields([
+  { name: 'images', maxCount: 10 },
+  { name: `detailJson`, maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const requestFiles = req.files;
+    console.log('Received files:', requestFiles);
+    res.status(200).json({
+        imageName: requestFiles.images ? requestFiles.images.map(file => file.originalname) : null,
+        detailJson: requestFiles.detailJson ? requestFiles.detailJson[0].buffer.toString() : null
+    });
+} catch (error) { 
+    console.error('Error processing data:', error);
+    res.status(500).send('Bad Request: Error processing data');
+  }
+});
+
+
+//////////////////////////////
+// レシート読取エンドポイント関連
+//////////////////////////////
 const uploadReceipt = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 }
 });
-
 const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function parseItemsFromJsonText(text) {
@@ -41,46 +92,7 @@ function parseItemsFromJsonText(text) {
   }
 }
 
-app.get('/landmarkData', async (req, res) => {
-  const gpsInfo = req.query.lat && req.query.lon
-  ? {
-    latitude: req.query.lat,
-    longitude: req.query.lon,
-  }
-  : null;
-
-  if (gpsInfo !== null) {
-    try {
-      const response = await axios.get(
-        `https://map.yahooapis.jp/placeinfo/V1/get?lat=${gpsInfo.latitude}&lon=${gpsInfo.longitude}&appid=${process.env.YAHOO_API_KEY}&output=json`);
-      res.json(response.data);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      res.status(500).send('Bad Request: Error fetching data from external API');
-    }
-  } else {
-    res.status(400).send('Bad Request: Missing latitude or longitude parameters');
-  }
-});
-
-app.post(``, upload.fields([
-  { name: 'images', maxCount: 10 },
-  { name: `detailJson`, maxCount: 1 }
-]), async (req, res) => {
-  try {
-    const requestFiles = req.files;
-    console.log('Received files:', requestFiles);
-    res.status(200).json({
-        imageName: requestFiles.images ? requestFiles.images.map(file => file.originalname) : null,
-        detailJson: requestFiles.detailJson ? requestFiles.detailJson[0].buffer.toString() : null
-    });
-} catch (error) { 
-    console.error('Error processing data:', error);
-    res.status(500).send('Bad Request: Error processing data');
-  }
-});
-
-// レシート読取エンドポイント
+// レシート読取エンドポイント本体
 app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
@@ -150,6 +162,10 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
   }
 });
 
+
+//////////////////////////////
+// サーバ起動
+//////////////////////////////
 const port = parseInt(process.env.PORT) || 8080;
 app.listen(port, () => {
   console.log(`Start on port ${port}`);
