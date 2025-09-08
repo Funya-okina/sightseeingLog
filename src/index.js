@@ -167,17 +167,14 @@ app.post(`/`, upload.fields([
 ]), async (req, res) => {
   try {
     const requestFiles = req.files;
-    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {});
 
-    htmlToPdf(generatedHtml).then(data => {
-      res.set('Content-disposition', 'attachment; filename="shiori.pdf"');
-      res.contentType("application/pdf");
-      res.send(data);
-    }).catch(async err => {
-      console.error('Error generating PDF file:', err);
-      res.status(500).send('Internal Server Error: Unable to generate PDF file');
-    });
-} catch (error) { 
+    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {});
+    const pdfData = await htmlToPdf(generatedHtml);
+
+    res.set('Content-disposition', 'attachment; filename="shiori.pdf"');
+    res.contentType("application/pdf");
+    res.send(pdfData);
+  } catch (error) { 
     console.error('Error processing data:', error);
     res.status(500).send('Bad Request: Error processing data');
   }
