@@ -240,7 +240,7 @@ async function htmlToPdf(htmlString) {
 }
 
 // 画像生成のタイムアウト付きラッパ
-async function generateCoverImageWithTimeout(inputImageData, timeoutMs = 15000) {
+async function generateCoverImageWithTimeout(inputImageData, timeoutMs = 150000) {
   console.time('cover');
   const timer = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
   try {
