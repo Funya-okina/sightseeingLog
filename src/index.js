@@ -152,6 +152,27 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
 // openAIクライアント取得
 const openAiClient = new OpenAI();
 
+// Puppeteer ブラウザをプロセス内で使い回す
+const browserPromise = puppeteer.launch({
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
+
+// PDF 同時実行を抑制（簡易セマフォ）
+let pdfInFlight = 0;
+const PDF_MAX_CONCURRENCY = 2;
+const waitShort = () => new Promise(r => setTimeout(r, 50));
+async function withPdfSlot(task) {
+  while (pdfInFlight >= PDF_MAX_CONCURRENCY) {
+    await waitShort();
+  }
+  pdfInFlight++;
+  try {
+    return await task();
+  } finally {
+    pdfInFlight--;
+  }
+}
+
 // 表紙取得関数
 async function generateCoverImage(inputImageData) {
   const prompt =
@@ -203,16 +224,34 @@ async function generateCoverImage(inputImageData) {
 
 // HTML文字列からPDFを生成する関数
 async function htmlToPdf(htmlString) {
-  const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  const browser = await browserPromise;
   const page = await browser.newPage();
-  page.setDefaultNavigationTimeout(0); 
-  await page.setContent(htmlString, { waitUntil: 'networkidle0' });
-  const pdfBuffer = await page.pdf({ format: 'A5' });
-  await browser.close();
-  console.log('GeneratePDF Done:');
-  return pdfBuffer;
+  try {
+    await page.setContent(htmlString, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+    const pdfBuffer = await page.pdf({ format: 'A5' });
+    console.log('GeneratePDF Done:');
+    return pdfBuffer;
+  } finally {
+    try { await page.close(); } catch {}
+  }
+}
+
+// 画像生成のタイムアウト付きラッパ
+async function generateCoverImageWithTimeout(inputImageData, timeoutMs = 15000) {
+  console.time('cover');
+  const timer = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+  try {
+    const result = await Promise.race([
+      generateCoverImage(inputImageData),
+      timer
+    ]);
+    return result; // null の場合はフォールバック扱い
+  } finally {
+    console.timeEnd('cover');
+  }
 }
 
 const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
@@ -223,12 +262,24 @@ app.post(`/`, upload.fields([
   { name: `detailJson`, maxCount: 1 }
 ]), async (req, res) => {
   try {
+    // このルートは重い可能性があるためレスポンスのタイムアウトを延長
+    res.setTimeout(180000);
+
     const requestFiles = req.files;
 
-    const coverImage = await generateCoverImage(requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null);
-    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {}, coverImage);
+    console.time('html');
+    const coverImage = await generateCoverImageWithTimeout(
+      requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null
+    );
+    const generatedHtml = generateHtmlFromJson(
+      requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {},
+      coverImage
+    );
+    console.timeEnd('html');
 
-    const pdfData = await htmlToPdf(generatedHtml);
+    console.time('pdf');
+    const pdfData = await withPdfSlot(() => htmlToPdf(generatedHtml));
+    console.timeEnd('pdf');
 
     res.set('Content-disposition', 'attachment; filename="shiori.pdf"');
     res.contentType("application/pdf");
@@ -244,6 +295,10 @@ app.post(`/`, upload.fields([
 // サーバ起動
 //////////////////////////////
 const port = parseInt(process.env.PORT) || 8080;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Start on port ${port}`);
 });
+// タイムアウト設定（インフラ側でも適切に調整すること）
+server.headersTimeout = 120000; // ヘッダ読み取り上限
+server.requestTimeout = 0;      // 全体リクエストのタイムアウト無効化（プロキシ側で制御）
+server.keepAliveTimeout = 60000;
