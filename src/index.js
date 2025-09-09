@@ -4,6 +4,8 @@ import multer from 'multer';
 import cours from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import puppeteer from 'puppeteer';
+import OpenAI from 'openai';
+
 import { generateHtmlFromJson } from './generateHtml.js';
 
 
@@ -36,6 +38,7 @@ app.get('/landmarkData', async (req, res) => {
     res.status(400).send('Bad Request: Missing latitude or longitude parameters');
   }
 });
+
 
 
 //////////////////////////////
@@ -146,7 +149,57 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
 //////////////////////////////
 // pdf返却エンドポイント関連
 //////////////////////////////
-const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
+// openAIクライアント取得
+const openAiClient = new OpenAI();
+
+// 表紙取得関数
+async function generateCoverImage(inputImageData) {
+  const prompt =
+    `#ミッション 
+    画像から特徴的な部分を抽出し、以下を生成してください。 
+    ・単色の色紙に黒ボールペンで描いたような、小学生の修学旅行のしおり表紙。 
+
+    ＃ポイント 
+    ・大きな手書き文字で「修学旅行」と書かれている。 
+    ・子どもの落書き風に、画像の特徴部分と、楽しそうな児童やかわいい動物（くま・うさぎ・とり）を描く。 
+    ・生成する画像は短辺:長辺=1:√2となる縦長の画像とすること
+    ・線はガタガタで素朴、小学生が描いたようなノートの落書き風。
+    `;
+
+  const inputImageBase64 = Buffer.isBuffer(inputImageData)
+    ? inputImageData.toString('base64')
+    : Buffer.from(inputImageData).toString('base64');
+
+  const response = await openAiClient.responses.create({
+    model: "gpt-4o",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          {
+            type: "input_image",
+            image_url: `data:image/jpeg;base64,${inputImageBase64}`,
+          }
+        ],
+      },
+    ],
+    tools: [{ type: "image_generation" }],
+  });
+
+  const imageData = response.output
+    .filter((output) => output.type === "image_generation_call")
+    .map((output) => output.result);
+
+  console.log('GenerateCoverImage Done:');
+
+  if (imageData.length > 0) {
+    const imageBase64 = imageData[0];
+    return imageBase64;
+  } else {
+    throw new Error("Image generation failed");
+  }
+}
 
 // HTML文字列からPDFを生成する関数
 async function htmlToPdf(htmlString) {
@@ -154,11 +207,15 @@ async function htmlToPdf(htmlString) {
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
+  page.setDefaultNavigationTimeout(0); 
   await page.setContent(htmlString, { waitUntil: 'networkidle0' });
   const pdfBuffer = await page.pdf({ format: 'A5' });
   await browser.close();
+  console.log('GeneratePDF Done:');
   return pdfBuffer;
 }
+
+const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
 
 // 本番用pdf返却エンドポイント
 app.post(`/`, upload.fields([
@@ -168,7 +225,9 @@ app.post(`/`, upload.fields([
   try {
     const requestFiles = req.files;
 
-    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {});
+    const coverImage = await generateCoverImage(requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null);
+    const generatedHtml = generateHtmlFromJson(requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {}, coverImage);
+
     const pdfData = await htmlToPdf(generatedHtml);
 
     res.set('Content-disposition', 'attachment; filename="shiori.pdf"');
@@ -178,18 +237,6 @@ app.post(`/`, upload.fields([
     console.error('Error processing data:', error);
     res.status(500).send('Bad Request: Error processing data');
   }
-});
-
-// テスト用PDF返却エンドポイント
-app.get('/pdf', (req, res) => {
-  htmlToPdf(sampleHtml).then(data => {
-    res.set('Content-disposition', 'attachment; filename="sample.pdf"');
-    res.contentType("application/pdf");
-    res.send(data);
-  }).catch(async err => {
-    console.error('Error generating PDF file:', err);
-    res.status(500).send('Internal Server Error: Unable to generate PDF file');
-  });
 });
 
 

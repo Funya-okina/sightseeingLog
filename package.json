@@ -24,6 +24,7 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "multer": "^2.0.2",
+    "openai": "^5.20.0",
     "puppeteer": "^24.19.0"
   },
   "devDependencies": {

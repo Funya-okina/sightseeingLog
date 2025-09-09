@@ -1,23 +1,39 @@
 /**
  * inputJsonの内容をtemplateHtmlに埋め込んだHTMLを返す
  * @param {object} json 入力データ
+ * @param {string} [base64Image] Base64エンコードされた画像データ
  * @returns {string} HTML文字列
  */
-export function generateHtmlFromJson(json) {
+export function generateHtmlFromJson(json, base64Image) {
+  // tripオブジェクト内にデータがある場合は取り出す
+  const trip = json && typeof json === 'object' && json.trip ? json.trip : json;
+
   // 必須項目名の正規化
-  const get = (obj, key) => obj[key] ?? obj[key + '!'] ?? obj[key.replace(/!$/, '')];
+  const get = (obj, key) => obj[key] ?? obj[key + '!'] ?? obj[key && typeof key === 'string' ? key.replace(/!$/, '') : key];
 
   // 日程・宿泊先
-  const startDate = get(json, 'startDate');
-  const endDate = get(json, 'endDate');
-  const hotelsArr = get(json, 'hotels');
+  function formatDateToYMD(date) {
+    if (!date) return '';
+    let d = date;
+    if (!(d instanceof Date)) {
+      d = new Date(d);
+    }
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  }
+
+  const rawStartDate = get(trip, 'startDate');
+  const rawEndDate = get(trip, 'endDate');
+  const startDate = formatDateToYMD(rawStartDate);
+  const endDate = formatDateToYMD(rawEndDate);
+  const hotelsArr = get(trip, 'hotels');
   const hotels = Array.isArray(hotelsArr) ? hotelsArr.join('<br>') : undefined;
 
   // 目的
-  const purpose = get(json, 'purpose');
+  const purpose = get(trip, 'purpose');
 
   // 参加者
-  const membersArr = get(json, 'members');
+  const membersArr = get(trip, 'members');
   let membersRows = '';
   if (Array.isArray(membersArr)) {
     membersRows = membersArr.map(m => {
@@ -30,7 +46,7 @@ export function generateHtmlFromJson(json) {
   }
 
   // 予算
-  const allowanceArr = get(json, 'allowance');
+  const allowanceArr = get(trip, 'allowance');
   let budgetRows = '';
   let total = 0;
   if (Array.isArray(allowanceArr)) {
@@ -51,6 +67,8 @@ export function generateHtmlFromJson(json) {
       total += Number(totalVal) || 0;
       return `<tr><td>${title}</td><td>${details}</td><td class="money">${totalVal}円</td></tr>`;
     }).filter(Boolean).join('');
+
+    console.log('Generate HTML Done');
   }
 
   // HTML生成
@@ -150,10 +168,24 @@ export function generateHtmlFromJson(json) {
         content: none !important;
       }
     }
+    @page fullimage {
+      margin: 0mm 0mm;
+      size: A5 portrait;
+    }
+    .page {
+      page: fullimage;
+      position: relative;
+      width: 100%;
+      height: 100vh; /* 1ページの高さを確保 */
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
   <div class="container">
+    <div class="page">  
+    ${base64Image ? `<img src="data:image/png;base64,${base64Image}" alt="Cover Image" style="width: 100%;object-fit:cover;object-position: 50% 50%;" />` : ''}
+    </div>
     ${startDate && endDate && hotels ? `
     <section class="section">
       <h2>日程と宿泊先</h2>
