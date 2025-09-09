@@ -71,6 +71,93 @@ export function generateHtmlFromJson(json, base64Image) {
     console.log('Generate HTML Done');
   }
 
+  // =========================
+  // 行程（場所と時系列）生成
+  // =========================
+  console.time('itinerary');
+  const imagesMeta = Array.isArray(json?.images) ? json.images : [];
+  const events = [];
+  for (let i = 0; i < imagesMeta.length; i++) {
+    const m = imagesMeta[i] || {};
+    const clientId = get(m, 'clientId');
+    const placeName = get(m, 'placeName') || '（場所不明）';
+    const rawDt = get(m, 'dateTime');
+    let dt = null;
+    if (typeof rawDt === 'string') {
+      const d = new Date(rawDt);
+      if (!isNaN(d.getTime())) dt = d;
+    }
+
+    // JSTでの表示用日付・時刻
+    let ymd = null;
+    let hm = '—';
+    let ts = null;
+    if (dt) {
+      try {
+        const dateFmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const timeFmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+        const dParts = dateFmt.formatToParts(dt).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+        ymd = `${dParts.year}/${dParts.month}/${dParts.day}`;
+        hm = timeFmt.format(dt);
+        ts = dt.getTime();
+      } catch {}
+    }
+
+    events.push({
+      clientId, placeName, ymd, hm, ts, uploadIndex: i
+    });
+  }
+
+  // グルーピング（ymdなしは"日付不明"）
+  const groups = new Map();
+  for (const ev of events) {
+    const key = ev.ymd || '日付不明';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  }
+
+  // グループキーの並び順（年月日昇順、日付不明は最後）
+  const keys = Array.from(groups.keys());
+  keys.sort((a, b) => {
+    if (a === '日付不明') return 1;
+    if (b === '日付不明') return -1;
+    // YYYY/MM/DD を数値比較
+    const na = Number(a.replaceAll('/', ''));
+    const nb = Number(b.replaceAll('/', ''));
+    return na - nb;
+  });
+
+  // 各日の中を ts → uploadIndex で昇順
+  for (const k of keys) {
+    groups.get(k).sort((x, y) => {
+      const xt = x.ts ?? Infinity;
+      const yt = y.ts ?? Infinity;
+      if (xt !== yt) return xt - yt;
+      return x.uploadIndex - y.uploadIndex;
+    });
+  }
+
+  // 描画用HTML
+  let itineraryHtml = '';
+  if (keys.length) {
+    let inner = '';
+    for (const k of keys) {
+      const list = groups.get(k);
+      inner += `
+    <h3 class="sticker">${k}</h3>
+    <ul>
+      ${list.map(ev => `<li>${ev.hm} …… ${ev.placeName}</li>`).join('\n      ')}
+    </ul>`;
+    }
+    itineraryHtml = `
+    <section class="section sheet">
+      <h2>行程</h2>
+      <div class="itinerary">${inner}
+      </div>
+    </section>`;
+  }
+  console.timeEnd('itinerary');
+
   // HTML生成
   return `
 <!DOCTYPE html>
@@ -252,6 +339,7 @@ export function generateHtmlFromJson(json, base64Image) {
       <p class="hint">※ おこづかいはよく考えて使いましょう</p>
     </section>
     ` : ''}
+    ${itineraryHtml}
     <!-- 持ち物と注意 -->
     <section class="section">
       <h2>持ち物と注意</h2>
