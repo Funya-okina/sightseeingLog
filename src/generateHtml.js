@@ -71,6 +71,93 @@ export function generateHtmlFromJson(json, base64Image) {
     console.log('Generate HTML Done');
   }
 
+  // =========================
+  // 行程（場所と時系列）生成
+  // =========================
+  console.time('itinerary');
+  const imagesMeta = Array.isArray(json?.images) ? json.images : [];
+  const events = [];
+  for (let i = 0; i < imagesMeta.length; i++) {
+    const m = imagesMeta[i] || {};
+    const clientId = get(m, 'clientId');
+    const placeName = get(m, 'placeName') || '（場所不明）';
+    const rawDt = get(m, 'dateTime');
+    let dt = null;
+    if (typeof rawDt === 'string') {
+      const d = new Date(rawDt);
+      if (!isNaN(d.getTime())) dt = d;
+    }
+
+    // JSTでの表示用日付・時刻
+    let ymd = null;
+    let hm = '—';
+    let ts = null;
+    if (dt) {
+      try {
+        const dateFmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const timeFmt = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false });
+        const dParts = dateFmt.formatToParts(dt).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+        ymd = `${dParts.year}/${dParts.month}/${dParts.day}`;
+        hm = timeFmt.format(dt);
+        ts = dt.getTime();
+      } catch {}
+    }
+
+    events.push({
+      clientId, placeName, ymd, hm, ts, uploadIndex: i
+    });
+  }
+
+  // グルーピング（ymdなしは"日付不明"）
+  const groups = new Map();
+  for (const ev of events) {
+    const key = ev.ymd || '日付不明';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  }
+
+  // グループキーの並び順（年月日昇順、日付不明は最後）
+  const keys = Array.from(groups.keys());
+  keys.sort((a, b) => {
+    if (a === '日付不明') return 1;
+    if (b === '日付不明') return -1;
+    // YYYY/MM/DD を数値比較
+    const na = Number(a.replaceAll('/', ''));
+    const nb = Number(b.replaceAll('/', ''));
+    return na - nb;
+  });
+
+  // 各日の中を ts → uploadIndex で昇順
+  for (const k of keys) {
+    groups.get(k).sort((x, y) => {
+      const xt = x.ts ?? Infinity;
+      const yt = y.ts ?? Infinity;
+      if (xt !== yt) return xt - yt;
+      return x.uploadIndex - y.uploadIndex;
+    });
+  }
+
+  // 描画用HTML
+  let itineraryHtml = '';
+  if (keys.length) {
+    let inner = '';
+    for (const k of keys) {
+      const list = groups.get(k);
+      inner += `
+    <h3 class=\"sticker\">${k}</h3>
+    <ul>
+      ${list.map(ev => `<li><span class=\"time\">${ev.hm}</span><span class=\"dot\">……</span><span class=\"place\">${ev.placeName}</span></li>`).join('\n      ')}
+    </ul>`;
+    }
+    itineraryHtml = `
+    <section class="section sheet">
+      <h2>行程</h2>
+      <div class="itinerary">${inner}
+      </div>
+    </section>`;
+  }
+  console.timeEnd('itinerary');
+
   // HTML生成
   return `
 <!DOCTYPE html>
@@ -84,14 +171,23 @@ export function generateHtmlFromJson(json, base64Image) {
     :root{
       --ink:#000;
       --warn:#dc5a3a;             /* 強調色（注意・警戒） */
+      --accent:#2e7d32;           /* 見出し・罫線のアクセント（深緑） */
     }
     body{
       margin:0; color:var(--ink); background:#fff;
-      font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+      font-family:
+        "Hiragino Maru Gothic ProN",
+        "BIZ UDGothic",
+        "Kosugi Maru",
+        "Yu Gothic",
+        "Noto Sans JP",
+        "Hiragino Kaku Gothic ProN",
+        Meiryo,
+        sans-serif;
       line-height:1.6; font-size:12pt;
     }
 
-    @page{ size:A4; margin:15mm; }
+    /* @page rule is defined below for A5 */
     @media print{
       body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
       .no-print{ display:none !important; }
@@ -103,13 +199,26 @@ export function generateHtmlFromJson(json, base64Image) {
       font-size:16pt;
       font-weight:700;
       text-align:left;
-      border-bottom:2px solid #000;
+      border-bottom:2px solid var(--accent);
       padding-bottom:4px;
     }
 
     .section{
       margin:20px 0;
       page-break-before:always;
+    }
+
+    /* 紙面の罫線背景（しおり風） */
+    .sheet{
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(0,0,0,.06) 0,
+          rgba(0,0,0,.06) 1px,
+          transparent 1px,
+          transparent 16px
+        );
+      padding-top:6px;
     }
 
     dl.kv{ margin:0 0 10px; }
@@ -136,7 +245,7 @@ export function generateHtmlFromJson(json, base64Image) {
       font-weight: bold;
       margin: 12pt 0;
       padding: 8pt 12pt;
-      background: #c9c9c9;
+      background: #eaf3ec;       /* アクセントに合わせた淡緑 */
       border-radius: 12pt;
       box-shadow: 2pt 2pt 6pt rgba(0,0,0,0.2);
       display: inline-block;      /* 横幅に合わせて中央寄せ */
@@ -144,22 +253,50 @@ export function generateHtmlFromJson(json, base64Image) {
 
     table.members{ width:100%; border-collapse:collapse; margin-top:8px; }
     .members th, .members td{ border:1px solid #000; padding:6px; font-size:11pt; text-align:left; }
-    .members th{ background:#eee; }
+    .members th{ background:#eaf3ec; }
 
     table.budget{ width:100%; border-collapse:collapse; margin-top:8px; }
     .budget th,.budget td{ border:1px solid #000; padding:6px; vertical-align:top; font-size:10.5pt; }
-    .budget th{ background:#eee; text-align:left; }
+    .budget th{ background:#eaf3ec; text-align:left; }
     .budget .money{ text-align:right; }
 
-    .total-box{ margin-top:10px; border:2px solid #000; padding:6px 10px; display:flex; justify-content:space-between; }
-    .total-box .label{ font-weight:700; }
+    /* 付箋/テープ風見出し（小見出し用） */
+    .sticker{
+      display:inline-block;
+      padding:6px 10px;
+      border-radius:8px;
+      background:#f2f7f3; /* 薄い緑がかった灰色 */
+      position:relative;
+      font-weight:700;
+      box-shadow:1px 1px 0 rgba(0,0,0,.35);
+    }
+    .sticker::before{
+      content:"";
+      position:absolute;
+      inset:-6px auto auto -6px;
+      width:36px; height:18px;
+      background:repeating-linear-gradient(45deg, rgba(0,0,0,.08) 0 6px, rgba(0,0,0,.16) 6px 12px);
+      transform:rotate(-6deg);
+      opacity:.7;
+      pointer-events:none;
+    }
+
+    /* 行程の可読性向上 */
+    .itinerary ul{ margin:6px 0 12px; list-style:none; padding-left:0; }
+    .itinerary li{ margin:4px 0; font-variant-numeric: tabular-nums; }
+    .itinerary li .time{ display:inline-block; min-width:4ch; }
+    .itinerary li .dot{ display:inline-block; margin:0 6px; opacity:.85; }
+    .itinerary li .place{ display:inline-block; }
+
+    .total-box{ margin-top:10px; border:2px solid var(--accent); background:#f3f8f4; padding:6px 10px; display:flex; justify-content:space-between; }
+    .total-box .label{ color:var(--accent); font-weight:700; }
     .total-box .value{ font-weight:800; font-size:13pt; }
 
     .hint{ font-size:9pt; color:#444; margin-top:4px; }
     .warn{ color:var(--warn); font-weight:700; }
 
     @page {
-      margin: 0mm 5mm;
+      margin: 10mm 7mm;
       size: A5 portrait;
     }
     @media print {
@@ -186,9 +323,17 @@ export function generateHtmlFromJson(json, base64Image) {
     <div class="page">  
     ${base64Image ? `<img src="data:image/png;base64,${base64Image}" alt="Cover Image" style="width: 100%;object-fit:cover;object-position: 50% 50%;" />` : ''}
     </div>
-    ${startDate && endDate && hotels ? `
-    <section class="section">
-      <h2>日程と宿泊先</h2>
+    ${(startDate && endDate) || hotels || purpose ? `
+    <section class="section sheet">
+      ${purpose ? `
+        <h2>旅の目的</h2>
+        <div class="goals-container">
+          <ul class="goals">
+            <li>${purpose}</li>
+          </ul>
+        </div>
+      ` : ''}
+      <h2>日程</h2>
       <dl class="kv">
         <dt>旅行開始日</dt>
         <dd>${startDate}</dd>
@@ -197,24 +342,16 @@ export function generateHtmlFromJson(json, base64Image) {
         <dt>旅行終了日</dt>
         <dd>${endDate}</dd>
       </dl>
-      <dl class="kv">
-        <dt>宿泊先</dt>
-        <dd>${hotels}</dd>
-      </dl>
-    </section>
-    ` : ''}
-    ${purpose ? `
-    <section class="section">
-      <h2>旅の目的</h2>
-      <div class="goals-container">
-        <ul class="goals">
-          <li>${purpose}</li>
-        </ul>
-      </div>
+      ${hotels ? `
+        <h2>宿泊先</h2>
+        <dl class="kv">
+          <dd>${hotels}</dd>
+        </dl>
+      `: ''}
     </section>
     ` : ''}
     ${membersRows ? `
-    <section class="section">
+    <section class="section sheet">
       <h2>参加者名</h2>
       <table class="members">
         <thead>
@@ -231,7 +368,7 @@ export function generateHtmlFromJson(json, base64Image) {
     </section>
     ` : ''}
     ${budgetRows ? `
-    <section class="section">
+    <section class="section sheet">
       <h2>予算・使用金額</h2>
       <table class="budget" aria-label="予算内訳">
         <thead>
@@ -252,8 +389,9 @@ export function generateHtmlFromJson(json, base64Image) {
       <p class="hint">※ おこづかいはよく考えて使いましょう</p>
     </section>
     ` : ''}
+    ${itineraryHtml}
     <!-- 持ち物と注意 -->
-    <section class="section">
+    <section class="section sheet">
       <h2>持ち物と注意</h2>
       <dl class="kv">
         <dt>必ず持参</dt>
