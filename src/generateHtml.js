@@ -295,8 +295,9 @@ export function generateHtmlFromJson(json, base64Image) {
     .hint{ font-size:9pt; color:#444; margin-top:4px; }
     .warn{ color:var(--warn); font-weight:700; }
 
+    /* ここ崩すと表紙のフィットがうまくいかなくなるので暫定で固定 */
     @page {
-      margin: 10mm 7mm;
+      margin: 0mm 5mm;
       size: A5 portrait;
     }
     @media print {
