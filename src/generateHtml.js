@@ -12,22 +12,56 @@ export function generateHtmlFromJson(json, base64Image) {
   const get = (obj, key) => obj[key] ?? obj[key + '!'] ?? obj[key && typeof key === 'string' ? key.replace(/!$/, '') : key];
 
   // 日程・宿泊先
-  function formatDateToYMD(date) {
-    if (!date) return '';
-    let d = date;
-    if (!(d instanceof Date)) {
-      d = new Date(d);
-    }
-    if (isNaN(d.getTime())) return '';
-    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-  }
-
   const rawStartDate = get(trip, 'startDate');
   const rawEndDate = get(trip, 'endDate');
-  const startDate = formatDateToYMD(rawStartDate);
-  const endDate = formatDateToYMD(rawEndDate);
+
+  function toValidDate(v) {
+    if (!v) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function getJpCalParts(d) {
+    const fmt = new Intl.DateTimeFormat('ja-JP-u-ca-japanese', {
+      timeZone: 'Asia/Tokyo',
+      era: 'long',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      weekday: 'short',
+    });
+    const parts = fmt.formatToParts(d).reduce((acc, p) => (acc[p.type] = p.value, acc), {});
+    return {
+      era: parts.era, // 例: "令和"
+      year: parts.year, // 例: "6"
+      month: parts.month, // 例: "9"
+      day: parts.day, // 例: "12"
+      weekday: parts.weekday, // 例: "木"
+    };
+  }
+
+  function formatRange(startRaw, endRaw) {
+    const sd = toValidDate(startRaw);
+    const ed = toValidDate(endRaw);
+    if (!sd && !ed) return '';
+
+    if (sd && ed) {
+      const sp = getJpCalParts(sd);
+      const ep = getJpCalParts(ed);
+      const startStr = `${sp.era}${sp.year}年${sp.month}月${sp.day}日(${sp.weekday})`;
+      const endStr = sp.month === ep.month
+        ? `${ep.day}日(${ep.weekday})`
+        : `${ep.month}月${ep.day}日(${ep.weekday})`;
+      return `${startStr}〜${endStr}`;
+    }
+
+    const p = getJpCalParts(sd || ed);
+    return `${p.era}${p.year}年${p.month}月${p.day}日(${p.weekday})`;
+  }
+
+  const scheduleText = formatRange(rawStartDate, rawEndDate);
   const hotelsArr = get(trip, 'hotels');
-  const hotels = Array.isArray(hotelsArr) ? hotelsArr.join('<br>') : undefined;
+  const hotels = Array.isArray(hotelsArr) ? hotelsArr.join(' / ') : undefined;
 
   // 目的
   const purpose = get(trip, 'purpose');
@@ -208,7 +242,8 @@ export function generateHtmlFromJson(json, base64Image) {
       --accent:#2e7d32;           /* 見出し・罫線のアクセント（深緑） */
     }
     body{
-      margin:0; color:var(--ink); background:#fff;
+      margin:0; color:var(--ink);
+      background:#fff;
       font-family:
         "Hiragino Maru Gothic ProN",
         "BIZ UDGothic",
@@ -242,18 +277,8 @@ export function generateHtmlFromJson(json, base64Image) {
       page-break-before:always;
     }
 
-    /* 紙面の罫線背景（しおり風） */
-    .sheet{
-      background:
-        repeating-linear-gradient(
-          to bottom,
-          rgba(0,0,0,.06) 0,
-          rgba(0,0,0,.06) 1px,
-          transparent 1px,
-          transparent 16px
-        );
-      padding-top:6px;
-    }
+    /* セクション内の余白調整（背景は body 側へ移行） */
+    .sheet{ padding-top:6px; }
 
     dl.kv{ margin:0 0 10px; }
     dl.kv dt{ font-weight:700; font-size:10.5pt; margin-bottom:2px; }
@@ -358,7 +383,30 @@ export function generateHtmlFromJson(json, base64Image) {
     <div class="page">  
     ${base64Image ? `<img src="data:image/png;base64,${base64Image}" alt="Cover Image" style="width: 100%;object-fit:cover;object-position: 50% 50%;" />` : ''}
     </div>
-    ${(startDate && endDate) || hotels || purpose ? `
+    ${scheduleText || membersRows ? `
+      <section class="section sheet">
+        <h2>日程</h2>
+        ${scheduleText ? `
+          <dl class="kv">
+            <dd>${scheduleText}</dd>
+          </dl>
+        ` : ''}
+        <h2>班員名簿</h2>
+        <table class="members">
+          <thead>
+            <tr>
+              <th style="width:30%">氏名</th>
+              <th style="width:18%">役割</th>
+              <th>エピソード</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${membersRows}
+          </tbody>
+        </table>
+        <p class="hint">※ 名札・健康カードを必ず携帯しましょう。</p>
+      </section>
+    ` : ''}
     <section class="section sheet">
       ${purpose ? `
         <h2>旅の目的</h2>
@@ -368,41 +416,26 @@ export function generateHtmlFromJson(json, base64Image) {
           </ul>
         </div>
       ` : ''}
-      <h2>日程</h2>
-      <dl class="kv">
-        <dt>旅行開始日</dt>
-        <dd>${startDate}</dd>
-      </dl>
-      <dl class="kv">
-        <dt>旅行終了日</dt>
-        <dd>${endDate}</dd>
-      </dl>
       ${hotels ? `
         <h2>宿泊先</h2>
         <dl class="kv">
           <dd>${hotels}</dd>
         </dl>
       `: ''}
+      <h2>持ち物と注意</h2>
+      <dl class="kv">
+        <dt>必ず持参</dt>
+        <dd>しおり・筆記用具・健康保険証の写し・雨具・常備薬・ハンカチ/ティッシュ</dd>
+      </dl>
+      <dl class="kv">
+        <dt>あると便利</dt>
+        <dd>小さめの折りたたみバッグ・モバイルバッテリー・絆創膏</dd>
+      </dl>
+      <dl class="kv">
+        <dt class="warn">約束（厳守）</dt>
+        <dd>時間厳守・整理整頓・買い物は班長に相談・夜更かし禁止</dd>
+      </dl>
     </section>
-    ` : ''}
-    ${membersRows ? `
-    <section class="section sheet">
-      <h2>参加者名</h2>
-      <table class="members">
-        <thead>
-          <tr>
-            <th style="width:30%">氏名</th>
-            <th style="width:18%">役割</th>
-            <th>エピソード</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${membersRows}
-        </tbody>
-      </table>
-      <p class="hint">※ 名札・健康カードを必ず携帯しましょう。</p>
-    </section>
-    ` : ''}
     ${budgetRows ? `
     <section class="section sheet">
       <h2>予算・使用金額</h2>
@@ -426,22 +459,6 @@ export function generateHtmlFromJson(json, base64Image) {
     </section>
     ` : ''}
     ${itineraryHtml}
-    <!-- 持ち物と注意 -->
-    <section class="section sheet">
-      <h2>持ち物と注意</h2>
-      <dl class="kv">
-        <dt>必ず持参</dt>
-        <dd>しおり・筆記用具・健康保険証の写し・雨具・常備薬・ハンカチ/ティッシュ</dd>
-      </dl>
-      <dl class="kv">
-        <dt>あると便利</dt>
-        <dd>小さめの折りたたみバッグ・モバイルバッテリー・絆創膏</dd>
-      </dl>
-      <dl class="kv">
-        <dt class="warn">約束（厳守）</dt>
-        <dd>時間厳守・整理整頓・買い物は班長に相談・夜更かし禁止</dd>
-      </dl>
-    </section>
     <div class="page-footer" aria-hidden="true"></div>
   </div>
 </body>
