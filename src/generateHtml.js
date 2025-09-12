@@ -36,13 +36,38 @@ export function generateHtmlFromJson(json, base64Image) {
   const membersArr = get(trip, 'members');
   let membersRows = '';
   if (Array.isArray(membersArr)) {
-    membersRows = membersArr.map(m => {
+    const roleMap = {
+      leader: '班長',
+      camera: 'カメラ係',
+      accountant: 'お財布係',
+      navigator: '案内係',
+      driver: '運転係',
+      reservation: '予約係'
+    };
+
+    const processed = membersArr.map(m => {
       const name = get(m, 'name');
+      if (!name) return null;
       const episode = get(m, 'episode');
-      // nameは必須
-      if (!name) return '';
-      return `<tr><td>${name}</td><td>${episode || ''}</td></tr>`;
-    }).filter(Boolean).join('');
+      const rawRole = get(m, 'role');
+      return { name, episode, rawRole };
+    }).filter(Boolean);
+
+    const anyProvidedRole = processed.some(p => {
+      const v = p.rawRole;
+      return v != null && String(v).trim() !== '';
+    });
+
+    membersRows = processed.map((p, idx) => {
+      let roleJp = '班員';
+      if (anyProvidedRole) {
+        const key = String(p.rawRole || '').trim();
+        if (key) roleJp = roleMap[key] || '班員';
+      } else {
+        roleJp = idx === 0 ? '班長' : '班員';
+      }
+      return `<tr><td>${p.name}</td><td>${roleJp}</td><td>${p.episode || ''}</td></tr>`;
+    }).join('');
   }
 
   // 予算
@@ -80,7 +105,8 @@ export function generateHtmlFromJson(json, base64Image) {
   for (let i = 0; i < imagesMeta.length; i++) {
     const m = imagesMeta[i] || {};
     const clientId = get(m, 'clientId');
-    const placeName = get(m, 'placeName') || '（場所不明）';
+    const rawPlaceName = get(m, 'placeName');
+    const placeName = rawPlaceName || '（場所不明）';
     const rawDt = get(m, 'dateTime');
     let dt = null;
     if (typeof rawDt === 'string') {
@@ -102,6 +128,11 @@ export function generateHtmlFromJson(json, base64Image) {
         ts = dt.getTime();
       } catch {}
     }
+
+    // 表示ルール: 時間も場所も取得できていない要素は表示しない
+    const hasTime = !!dt;
+    const hasPlace = typeof rawPlaceName === 'string' && rawPlaceName.trim() !== '';
+    if (!hasTime && !hasPlace) continue;
 
     events.push({
       clientId, placeName, ymd, hm, ts, uploadIndex: i
@@ -143,18 +174,21 @@ export function generateHtmlFromJson(json, base64Image) {
     let inner = '';
     for (const k of keys) {
       const list = groups.get(k);
+      if (!list || list.length === 0) continue; // 念のため空グループはスキップ
       inner += `
     <h3 class=\"sticker\">${k}</h3>
     <ul>
       ${list.map(ev => `<li><span class=\"time\">${ev.hm}</span><span class=\"dot\">……</span><span class=\"place\">${ev.placeName}</span></li>`).join('\n      ')}
     </ul>`;
     }
-    itineraryHtml = `
-    <section class="section sheet">
-      <h2>行程</h2>
-      <div class="itinerary">${inner}
-      </div>
-    </section>`;
+    if (inner.trim()) {
+      itineraryHtml = `
+      <section class="section sheet">
+        <h2>行程</h2>
+        <div class="itinerary">${inner}
+        </div>
+      </section>`;
+    }
   }
   console.timeEnd('itinerary');
 
@@ -358,6 +392,7 @@ export function generateHtmlFromJson(json, base64Image) {
         <thead>
           <tr>
             <th style="width:30%">氏名</th>
+            <th style="width:18%">役割</th>
             <th>エピソード</th>
           </tr>
         </thead>
