@@ -2,9 +2,10 @@
  * inputJsonの内容をtemplateHtmlに埋め込んだHTMLを返す
  * @param {object} json 入力データ
  * @param {string} [base64Image] Base64エンコードされた画像データ
+ * @param {object} [intinerary] 行程データ（generateIntinerary関数の戻り値）
  * @returns {string} HTML文字列
  */
-export function generateHtmlFromJson(json, base64Image) {
+export function generateHtmlFromJson(json, base64Image, intinerary) {
   // tripオブジェクト内にデータがある場合は取り出す
   const trip = json && typeof json === 'object' && json.trip ? json.trip : json;
 
@@ -202,26 +203,45 @@ export function generateHtmlFromJson(json, base64Image) {
     });
   }
 
-  // 描画用HTML
+  // 描画用HTML（intinerary優先）
   let itineraryHtml = '';
-  if (keys.length) {
+  if (intinerary && Array.isArray(intinerary.days) && intinerary.days.length > 0) {
     let inner = '';
-    for (const k of keys) {
-      const list = groups.get(k);
-      if (!list || list.length === 0) continue; // 念のため空グループはスキップ
+    for (const day of intinerary.days) {
+      const date = day.date || '';
+      const details = Array.isArray(day.details) ? day.details : [];
       inner += `
-    <h3 class=\"sticker\">${k}</h3>
-    <ul>
-      ${list.map(ev => `<li><span class=\"time\">${ev.hm}</span><span class=\"dot\">……</span><span class=\"place\">${ev.placeName}</span></li>`).join('\n      ')}
-    </ul>`;
+        <h3 class="sticker">${date}</h3>
+        <ul>
+          ${details.map(d => `<li><span class="time">${d.startTime || ''}</span><span class="dot">……</span><span class="place">${d.place || ''}</span></li>`).join('\n          ')}
+        </ul>`;
     }
     if (inner.trim()) {
       itineraryHtml = `
-      <section class="section sheet">
-        <h2>行程</h2>
-        <div class="itinerary">${inner}
-        </div>
-      </section>`;
+        <section class="section sheet">
+          <h2>行程</h2>
+          <div class="itinerary">${inner}
+          </div>
+        </section>`;
+    }
+  } else if (keys.length) {
+    let inner = '';
+    for (const k of keys) {
+      const list = groups.get(k);
+      if (!list || list.length === 0) continue;
+      inner += `
+        <h3 class="sticker">${k}</h3>
+        <ul>
+          ${list.map(ev => `<li><span class="time">${ev.hm}</span><span class="dot">……</span><span class="place">${ev.placeName}</span></li>`).join('\n          ')}
+        </ul>`;
+    }
+    if (inner.trim()) {
+      itineraryHtml = `
+        <section class="section sheet">
+          <h2>行程</h2>
+          <div class="itinerary">${inner}
+          </div>
+        </section>`;
     }
   }
   console.timeEnd('itinerary');

@@ -256,7 +256,60 @@ async function generateCoverImageWithTimeout(inputImageData, timeoutMs = 150000)
 
 const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
 
-// 本番用pdf返却エンドポイント
+// 日程生成関数
+/**
+ * Generate itinerary using Gemini API
+ * @param {Array<{dateTime: string, placeName: string}>} inputList
+ * @returns {Promise<{days: {date: string, details: {startTime: string, place: string}[]}[]}>}
+ */
+const generateIntinerary = async (inputList) => {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0,
+      maxOutputTokens: 16384,
+    }
+  });
+
+  // Prompt (English variable names, Japanese instructions)
+  const prompt = [
+    '以下のsightseeing placesリストから、dateTimeの日にちごとにグループ化した一日の行程を作成してください。',
+    '出力は必ず次の構造のJSON形式で返してください。',
+    '[出力例]',
+    '{ "days": [ { "date": "2025-09-12", "details": [ { "startTime": "09:00", "place": "東京タワー" }, { "startTime": "13:00", "place": "浅草寺" } ] } ] }',
+    '[入力リスト]',
+    JSON.stringify(inputList, null, 2),
+    '[制約]',
+    '- 各dateごとに、placeを時系列で並べてください。',
+    '- details各項目のstartTimeはdateTimeの時間から1時間以内にしてください。',
+    '- details各項目のstartTimeはJST（UTC+9）で出力してください。',
+    '- details各項目のstartTimeは30分区切りの時間を出力してください（例: 09:00, 13:30, 15:30, 18:00 など）',
+    '- JSONのみを出力し、余計な説明やテキストは一切含めないでください。',
+  ].join('\n');
+
+  const result = await model.generateContent([{ text: prompt }]);
+  const resp = result?.response;
+  let text = resp?.text?.() ?? '';
+  if (!text && resp?.candidates?.[0]?.content?.parts) {
+    text = resp.candidates[0].content.parts
+      .map(p => p?.text)
+      .filter(Boolean)
+      .join('')
+      .trim();
+  }
+  // JSONパース
+  try {
+    const parsed = JSON.parse(text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+    return parsed;
+  } catch (e) {
+    throw new Error('Gemini APIからの応答のパースに失敗しました: ' + text);
+  }
+};
+
+  // 本番用pdf返却エンドポイント
 app.post(`/`, upload.fields([
   { name: 'images', maxCount: 10 },
   { name: `detailJson`, maxCount: 1 }
@@ -268,12 +321,16 @@ app.post(`/`, upload.fields([
     const requestFiles = req.files;
 
     console.time('html');
+    const intineraryData = await generateIntinerary(
+      requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()).images : []
+    );
     const coverImage = await generateCoverImageWithTimeout(
       requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null
     );
     const generatedHtml = generateHtmlFromJson(
       requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {},
-      coverImage
+      coverImage,
+      intineraryData
     );
     console.timeEnd('html');
 
