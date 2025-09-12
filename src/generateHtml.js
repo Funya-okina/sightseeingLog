@@ -104,31 +104,36 @@ export function generateHtmlFromJson(json, base64Image) {
     }).join('');
   }
 
-  // 予算
+  // 予算（おこづかい帳）
   const allowanceArr = get(trip, 'allowance');
-  let budgetRows = '';
-  let total = 0;
-  if (Array.isArray(allowanceArr)) {
-    budgetRows = allowanceArr.map(a => {
-      const title = get(a, 'title');
-      const totalVal = get(a, 'total');
-      const detailsArr = get(a, 'details');
-      let details = '';
-      if (Array.isArray(detailsArr)) {
-        details = detailsArr.map(d => {
-          const dname = get(d, 'name');
-          const damount = get(d, 'amount');
-          if (!dname || damount == null) return '';
-          return `${dname}…… ${damount}円`;
-        }).filter(Boolean).join('<br>');
-      }
-      if (!title || totalVal == null) return '';
-      total += Number(totalVal) || 0;
-      return `<tr><td>${title}</td><td>${details}</td><td class="money">${totalVal}円</td></tr>`;
-    }).filter(Boolean).join('');
+  const entries = allowanceArr.map(allowance => {
+    const title = get(allowance, 'title');
+    const total = Number(get(allowance, 'total')) || 0;
+    const details = get(allowance, 'details');
 
-    console.log('Generate HTML Done');
-  }
+    const items = details.map(detail => {
+      const name = get(detail, 'name');
+      return name ? name.trim() : '';
+    }).filter(Boolean).join(', ');
+
+    if (!title || !isFinite(total)) return null;
+    return { title, items, total };
+  }).filter(Boolean);
+
+  // 消費合計
+  const spentTotal = entries.reduce((acc, e) => acc + (Number(e.total) || 0), 0);
+
+  // 上限：消費金額に対して±10%のランダム値
+  const delta = (Math.random() * 0.2) - 0.1; // [-0.1, +0.1)
+  const allowanceUpper = Math.max(0, Math.round(spentTotal * (1 + delta)));
+
+  // 残金列を出すためにランニングで差し引き
+  let running = 0;
+  const budgetRows = entries.map(entry => {
+    running += Number(entry.total) || 0;
+    const remain = allowanceUpper - running;
+    return `<tr><td>${entry.title}</td><td>${entry.items}</td><td class=\"money\">${entry.total}円</td><td class=\"money\">${remain}円</td></tr>`;
+  }).join('');
 
   // =========================
   // 行程（場所と時系列）生成
@@ -438,13 +443,18 @@ export function generateHtmlFromJson(json, base64Image) {
     </section>
     ${budgetRows ? `
     <section class="section sheet">
-      <h2>予算・使用金額</h2>
+      <h2>おこづかい帳</h2>
+      <div class="total-box">
+        <div class="label">おこづかい</div>
+        <div class="value">${allowanceUpper}円</div>
+      </div>
       <table class="budget" aria-label="予算内訳">
         <thead>
           <tr>
-            <th style="width:25%">項目</th>
-            <th>商品（明細）</th>
-            <th style="width:20%">合計</th>
+            <th style="width:25%">買ったもの</th>
+            <th>商品名</th>
+            <th style="width:18%">金額</th>
+            <th style="width:18%">残金</th>
           </tr>
         </thead>
         <tbody>
@@ -452,8 +462,8 @@ export function generateHtmlFromJson(json, base64Image) {
         </tbody>
       </table>
       <div class="total-box">
-        <div class="label">合計</div>
-        <div class="value">${total}円</div>
+        <div class="label">残ったお金</div>
+        <div class="value">${allowanceUpper - spentTotal}円</div>
       </div>
       <p class="hint">※ おこづかいはよく考えて使いましょう</p>
     </section>
