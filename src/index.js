@@ -173,23 +173,36 @@ async function withPdfSlot(task) {
   }
 }
 
-// 表紙取得関数
-async function generateCoverImage(inputImageData) {
+// 表紙取得関数（複数画像対応）
+async function generateCoverImage(inputImageArray) {
   const prompt =
-    `#ミッション 
-    画像から特徴的な部分を抽出し、以下を生成してください。 
-    ・単色の色紙に黒ボールペンで描いたような、小学生の修学旅行のしおり表紙。 
+    `# 依頼概要
+     * 小学校の修学旅行のしおり表紙生成
+     # 入力
+       * 複数の画像ファイル
+     # 出力
+       * 1枚の画像
+     # 実施手順
+     1. 複数の画像から「修学旅行の表紙」にふさわしい観光地が映っているものを選択してください
+     2. 1.で選択した画像から特徴的な部分を抽出し、以下を生成してください
+       * 単色の色紙に黒ボールペンで描いたような、小学生の修学旅行のしおり表紙。 
+     # 注意点
+     * 大きな手書き文字で「修学旅行」と書かれている。
+     * 子どもの落書き風に、画像の特徴部分と、楽しそうな児童やかわいい動物（くま・うさぎ・とり）を描く。
+     * 生成する画像は短辺:長辺=1:√2となる縦長の画像とすること
+     * 線はガタガタで素朴、小学生が描いたようなノートの落書き風。`;
 
-    ＃ポイント 
-    ・大きな手書き文字で「修学旅行」と書かれている。 
-    ・子どもの落書き風に、画像の特徴部分と、楽しそうな児童やかわいい動物（くま・うさぎ・とり）を描く。 
-    ・生成する画像は短辺:長辺=1:√2となる縦長の画像とすること
-    ・線はガタガタで素朴、小学生が描いたようなノートの落書き風。
-    `;
-
-  const inputImageBase64 = Buffer.isBuffer(inputImageData)
-    ? inputImageData.toString('base64')
-    : Buffer.from(inputImageData).toString('base64');
+  // inputImageArray: Buffer[]
+  if (!Array.isArray(inputImageArray) || inputImageArray.length === 0) {
+    throw new Error('No images provided for cover generation');
+  }
+  const imageInputs = inputImageArray.map(buf => {
+    const base64 = Buffer.isBuffer(buf) ? buf.toString('base64') : Buffer.from(buf).toString('base64');
+    return {
+      type: "input_image",
+      image_url: `data:image/jpeg;base64,${base64}`,
+    };
+  });
 
   const response = await openAiClient.responses.create({
     model: "gpt-4o",
@@ -198,10 +211,7 @@ async function generateCoverImage(inputImageData) {
         role: "user",
         content: [
           { type: "input_text", text: prompt },
-          {
-            type: "input_image",
-            image_url: `data:image/jpeg;base64,${inputImageBase64}`,
-          }
+          ...imageInputs
         ],
       },
     ],
@@ -383,9 +393,12 @@ app.post(`/`, upload.fields([
     console.time('html');
     const detailObj = requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {};
     const intineraryData = await generateIntinerary(detailObj.images ? detailObj.images : []);
-    const coverImage = await generateCoverImageWithTimeout(
-      requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null
-    );
+    // 画像配列の最初の4つまでを渡す
+    let coverImage = null;
+    if (requestFiles.images && Array.isArray(requestFiles.images) && requestFiles.images.length > 0) {
+      const imageBuffers = requestFiles.images.slice(0, 4).map(img => img.buffer);
+      coverImage = await generateCoverImageWithTimeout(imageBuffers);
+    }
     const impressionText = await generateImpression(detailObj);
     const generatedHtml = generateHtmlFromJson(detailObj, coverImage, intineraryData, impressionText);
     console.timeEnd('html');
