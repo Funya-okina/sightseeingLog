@@ -3,9 +3,10 @@
  * @param {object} json 入力データ
  * @param {string} [base64Image] Base64エンコードされた画像データ
  * @param {object} [intinerary] 行程データ（generateIntinerary関数の戻り値）
+ * @param {string} [impression] 旅行の感想（小6・しおり風）
  * @returns {string} HTML文字列
  */
-export function generateHtmlFromJson(json, base64Image, intinerary) {
+export function generateHtmlFromJson(json, base64Image, intinerary, impression) {
   // tripオブジェクト内にデータがある場合は取り出す
   const trip = json && typeof json === 'object' && json.trip ? json.trip : json;
 
@@ -251,6 +252,21 @@ export function generateHtmlFromJson(json, base64Image, intinerary) {
   }
   console.timeEnd('itinerary');
 
+  // 感想（小6・しおり風）セクション
+  let impressionSection = '';
+  if (typeof impression === 'string' && impression.trim()) {
+    const esc = (s) => String(s)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    const body = esc(impression.trim()).replaceAll('\n', '<br>');
+    impressionSection = `
+    <section class="section sheet">
+      <h2>⭐️旅の感想⭐️</h2>
+      <div class="impression">${body}</div>
+    </section>`;
+  }
+
   // HTML生成
   return `
 <!DOCTYPE html>
@@ -378,6 +394,7 @@ export function generateHtmlFromJson(json, base64Image, intinerary) {
 
     .hint{ font-size:9pt; color:#444; margin-top:4px; }
     .warn{ color:var(--warn); font-weight:700; }
+    .impression{ white-space:normal; line-height:1.7; font-size:11pt; }
 
     /* ここ崩すと表紙のフィットがうまくいかなくなるので暫定で固定 */
     @page {
@@ -488,6 +505,7 @@ export function generateHtmlFromJson(json, base64Image, intinerary) {
       <p class="hint">※ おこづかいはよく考えて使いましょう</p>
     </section>
     ` : ''}
+    ${impressionSection}
     ${itineraryHtml}
     <div class="page-footer" aria-hidden="true"></div>
   </div>
