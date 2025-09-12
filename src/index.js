@@ -98,7 +98,7 @@ app.post('/receipt', uploadReceipt.single('receipt'), async (req, res) => {
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0,
-        maxOutputTokens: 2048
+        maxOutputTokens: 10000
       }
     });
 
@@ -256,6 +256,66 @@ async function generateCoverImageWithTimeout(inputImageData, timeoutMs = 150000)
 
 const upload = multer({ storage: multer.memoryStorage() }); // メモリ上に保存
 
+// 旅行の感想 生成関数（Gemini）
+async function generateImpression(detailJson) {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      responseMimeType: 'text/plain',
+      temperature: 0.7,
+      maxOutputTokens: 10000,
+    }
+  });
+
+  const trip = detailJson.trip;
+  const allowance = trip.allowance;
+  const allowanceTotal = allowance.reduce((sum, a) => sum + (Number(a.total) || 0), 0);
+  const members = trip.members
+    .map(member => `${member.name}${member.role ? `（${member.role}）` : ''}${member.episode ? `（${member.episode}）` : ''}`)
+    .join('、');
+  const hotels = trip.hotels.filter(Boolean).join('、');
+  const places = detailJson.images.map(image => image.placeName).filter(Boolean).join(' → ');
+  const allowanceDetails = allowance
+    .map(a => {
+      const n = a.name;
+      const amount = `${a.amount}円`;
+      return n ? `${n}(${amount})` : amount;
+    })
+
+  const prompt = [
+    'あなたは小学6年生です。これから、学校の「旅行のしおり」にのせる短い感想文を書きます。',
+    '下のデータだけを使って、作り話はせず、300〜500文字で日本語の感想を書いてください。',
+    '短めの文で、やさしい言葉を中心に、前向きな気持ちが伝わるようにします。段落を2〜4つに分けてください。',
+    '',
+    '[旅行データの要約（入力から作成）]',
+    `${trip.purpose ? "・目的: " + trip.purpose : ''}`,
+    `・期間: ${trip.startDate} 〜 ${trip.endDate}`,
+    `${hotels.length ? "・宿泊先: " + hotels : ''}`,
+    `・参加メンバー: ${members}`,
+    `${places ? '・主な訪問地: ' + places : ''}`,
+    `・おこづかいメモ: 合計 ${allowanceTotal} 円、主な内訳 ${allowanceDetails}`,
+    '',
+    '[元データ（そのまま）]',
+    JSON.stringify(detailJson, null, 2),
+    '',
+    '出力は本文のみを書き、タイトルは不要です。'
+  ].join('\n');
+
+  const result = await model.generateContent([{ text: prompt }]);
+  const resp = result?.response;
+  let text = resp?.text?.() ?? '';
+  if (!text && resp?.candidates?.[0]?.content?.parts) {
+    text = resp.candidates[0].content.parts
+      .map(p => p?.text)
+      .filter(Boolean)
+      .join('')
+      .trim();
+  }
+  return (text || '').trim();
+}
+
 // 日程生成関数
 /**
  * Generate itinerary using Gemini API
@@ -321,17 +381,13 @@ app.post(`/`, upload.fields([
     const requestFiles = req.files;
 
     console.time('html');
-    const intineraryData = await generateIntinerary(
-      requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()).images : []
-    );
+    const detailObj = requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {};
+    const intineraryData = await generateIntinerary(detailObj.images ? detailObj.images : []);
     const coverImage = await generateCoverImageWithTimeout(
       requestFiles.images && requestFiles.images[0] ? requestFiles.images[0].buffer : null
     );
-    const generatedHtml = generateHtmlFromJson(
-      requestFiles.detailJson ? JSON.parse(requestFiles.detailJson[0].buffer.toString()) : {},
-      coverImage,
-      intineraryData
-    );
+    const impressionText = await generateImpression(detailObj);
+    const generatedHtml = generateHtmlFromJson(detailObj, coverImage, intineraryData, impressionText);
     console.timeEnd('html');
 
     console.time('pdf');
