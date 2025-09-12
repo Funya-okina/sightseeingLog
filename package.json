@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "local": "nodemon ./src/index.js",
-    "start": "node ./src/index.js"
+    "start": "node ./src/index.js",
+    "deploy": "gcloud builds submit --tag gcr.io/sightseeinglog/sightseeinglog && gcloud run deploy sightseeinglog --image gcr.io/sightseeinglog/sightseeinglog --platform managed --region asia-northeast1 --allow-unauthenticated" 
   },
   "repository": {
     "type": "git",
